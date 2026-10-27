@@ -1,0 +1,76 @@
+\documentclass[conference]{IEEEtran}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\title{Solar Filament Instance Segmentation\\under Multi-Annotator Panoptic Evaluation}
+\author{\IEEEauthorblockN{Anonymous Participant}\IEEEauthorblockA{IEEE BigData Cup 2026 -- Solar Filament Segmentation}}
+\begin{document}
+\maketitle
+\begin{abstract}
+We study instance segmentation of solar filaments in 2048$\times$2048 GONG H-alpha observations under the organiser's panoptic quality metric. We show that the 707 training images contain 1{,}154 annotator passes scored independently, that cross-annotator agreement bounds PQ at 0.320, and that the union-of-annotators oracle reaches 0.782 but only 0.601 on three-pass images. Our pipeline couples a YOLO11-seg detector trained on union targets with a U-Net semantic prior that re-thresholds each proposal; it improves local PQ from 0.366 to 0.399 and transfers to the public leaderboard (0.290$\rightarrow$0.340).
+\end{abstract}
+\section{Task and Metric}
+Given a 2048$\times$2048 GONG H-alpha image, predict one mask per filament. The metric is panoptic quality with IoU$>$0.5 matching,
+\begin{equation}
+\mathrm{PQ}=\frac{\sum_{(g,p)\in TP}\mathrm{IoU}(g,p)}{|TP|+0.5|FP|+0.5|FN|},
+\end{equation}
+evaluated per annotator pass and pooled. Submissions are CSV files of (\texttt{filament\_id}, \texttt{segmentation\_rle}); masks of one image may not overlap.
+\section{What the Data Contains}
+The training images carry \textbf{1{,}154 annotator passes}: 411 images with one pass, 145 with two, 151 with three; 8{,}199 annotations. Because each pass is scored independently, a filament marked by one expert is a TP for that pass and an FP for every other pass of the same image, and FP and FN carry equal weight. Scoring one expert's labels against another's gives \textbf{PQ 0.320} (SQ 0.631, RQ 0.507).
+Using the union of all expert instances as a perfect prediction bounds any method. On our held-out split this oracle scores \textbf{0.782}, but the bound depends strongly on annotation count:
+\begin{table}[t]
+\centering
+\caption{Union oracle by passes per image.}
+\begin{tabular}{ccc}
+\toprule
+passes/image & images & oracle PQ\\
+\midrule
+1 & 66 & 1.000\\
+2 & 16 & 0.733\\
+3 & 24 & 0.601\\
+\midrule
+all & 106 & 0.782\\
+\bottomrule
+\end{tabular}
+\end{table}
+Any split-to-split comparison is therefore only meaningful at fixed composition, and a public/private gap is expected when the public half has more multi-pass images.
+\section{Method}
+\textbf{Union targets.} Duplicate instances across passes of one physical image are merged (mask IoU$>$0.6, 6{,}941$\rightarrow$5{,}810 instances), so the detector learns to cover every filament any expert considered real. Training on single-pass labels raises YOLO's mask mAP50 from 0.52 to 0.68 yet \emph{lowers} PQ (0.370 vs 0.366): it buys precision with recall.
+
+\textbf{Detector.} YOLO11s-seg at 1280 px, 100 epochs, mosaic and scale augmentation, no colour jitter.
+
+\textbf{Semantic prior and refinement.} A U-Net (resnet34, 1024 px, union targets) predicts a full-resolution probability field. Each proposal is re-thresholded against that field inside a dilated 6 px ROI; components below 200 px fall back to the original proposal. This moves boundaries toward image evidence without inventing or deleting instances:
+\begin{table}[t]
+\centering
+\caption{Local validation PQ (mutually exclusive masks).}
+\begin{tabular}{lccc}
+\toprule
+stage & PQ & SQ & RQ\\
+\midrule
+YOLO only & 0.366 & 0.649 & 0.564\\
++ U-Net refine & \textbf{0.399} & 0.670 & 0.595\\
+\bottomrule
+\end{tabular}
+\end{table}
+\textbf{Mutual exclusion.} Instances are assigned greedily by confidence; this constraint alone costs $\approx$0.018 PQ and is applied in every number reported here.
+\section{Negative Results}
+Ten further ideas did not help: single-annotator labels (0.370), merging U-Net components (0.348), flip TTA (0.371), 1536 inference from a 1280 model (0.391), YOLO11m (0.396), s+m ensemble (0.373), tiled 1024 inference (0.320), proposal re-ranking (no held-out gain), 200-epoch training (0.393), and contrast channels (0.387). In every case detection metrics rose while PQ did not.
+\section{Error Analysis and Limits}
+Splitting validation by annotation count locates the bottleneck:
+\begin{table}[t]
+\centering
+\caption{Measured PQ by annotator count.}
+\begin{tabular}{ccccc}
+\toprule
+passes & oracle & measured & SQ & RQ\\
+\midrule
+1 (66) & 1.000 & 0.377 & 0.672 & 0.561\\
+2 (16) & 0.733 & 0.370 & 0.665 & 0.556\\
+3 (24) & 0.601 & 0.437 & 0.670 & 0.652\\
+\bottomrule
+\end{tabular}
+\end{table}
+Mask quality is flat (SQ$\approx$0.67); single-pass images lose 53\% of instances to missed detections. Missed instances have mean best-IoU 0.273: they are found but their boundary falls just short of the 0.5 threshold. Recall is flat across radial position (72--76\%), so limb darkening is not the cause.
+\section{Conclusion}
+Local validation PQ is \textbf{0.399}; public leaderboard \textbf{0.340}. Under the multi-annotator protocol the achievable ceiling on this split is 0.782, and the binding constraints are 707 training images, thin low-contrast targets, and FP/FN symmetry that punishes both over- and under-prediction. U-Net-guided proposal refinement is the one component that transfers to the leaderboard.
+\end{document}
