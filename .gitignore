@@ -11,3 +11,6 @@ logs/
 out/*.csv
 __pycache__/
 *.pyc
+yolo11*-seg.pt
+yolo26n.pt
+weights/
